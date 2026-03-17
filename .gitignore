@@ -1,0 +1,7 @@
+.gradle/
+.kotlin/
+build/
+gradle-8.10.2/
+gradle-8.10.2-bin.zip
+config/app.properties
+output.txt
