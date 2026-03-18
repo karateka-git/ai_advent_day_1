@@ -1,7 +1,10 @@
+import java.io.BufferedReader
+import java.io.InputStreamReader
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
@@ -21,6 +24,10 @@ private const val API_URL_TEMPLATE =
 private const val USER_ROLE = "user"
 private const val ASSISTANT_ROLE = "assistant"
 private val json = Json { ignoreUnknownKeys = true }
+private val consoleReader = BufferedReader(
+    InputStreamReader(System.`in`, detectConsoleCharset())
+)
+private val systemConsole = System.console()
 
 fun main() {
     val config = loadConfig()
@@ -29,12 +36,12 @@ fun main() {
     val conversation = mutableListOf<ChatMessage>()
     val httpClient = HttpClient.newHttpClient()
 
-    println("Чат запущен. Введите сообщение и нажмите Enter.")
-    println("Введите 'exit' или 'quit' для выхода.")
+    println("\u0427\u0430\u0442 \u0437\u0430\u043f\u0443\u0449\u0435\u043d. \u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u0438 \u043d\u0430\u0436\u043c\u0438\u0442\u0435 Enter.")
+    println("\u0412\u0432\u0435\u0434\u0438\u0442\u0435 'exit' \u0438\u043b\u0438 'quit' \u0434\u043b\u044f \u0432\u044b\u0445\u043e\u0434\u0430.")
 
     while (true) {
-        print("Вы: ")
-        val prompt = readlnOrNull()?.trim()
+        print("\u0412\u044b: ")
+        val prompt = readConsoleLine()?.trim()
             ?: break
 
         if (prompt.isEmpty()) {
@@ -42,7 +49,7 @@ fun main() {
         }
 
         if (prompt.equals("exit", ignoreCase = true) || prompt.equals("quit", ignoreCase = true)) {
-            println("Чат завершён.")
+            println("\u0427\u0430\u0442 \u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043d.")
             break
         }
 
@@ -50,7 +57,7 @@ fun main() {
 
         val request = HttpRequest.newBuilder()
             .uri(URI.create(API_URL_TEMPLATE.format(agentId)))
-            .header("Content-Type", "application/json")
+            .header("Content-Type", "application/json; charset=UTF-8")
             .header("Authorization", "Bearer $userToken")
             .POST(
                 HttpRequest.BodyPublishers.ofString(
@@ -61,7 +68,8 @@ fun main() {
                             temperature = 1,
                             maxTokens = 100
                         )
-                    )
+                    ),
+                    StandardCharsets.UTF_8
                 )
             )
             .build()
@@ -76,23 +84,34 @@ fun main() {
         }
 
         if (response.statusCode() !in 200..299) {
-            error("Ошибка запроса к API. Статус ${response.statusCode()}: ${response.body()}")
+            error("\u041e\u0448\u0438\u0431\u043a\u0430 \u0437\u0430\u043f\u0440\u043e\u0441\u0430 \u043a API. \u0421\u0442\u0430\u0442\u0443\u0441 ${response.statusCode()}: ${response.body()}")
         }
 
         val completion = json.decodeFromString<ChatCompletionResponse>(response.body())
         val content = completion.choices.firstOrNull()?.message?.content
-            ?: error("Ответ API не содержит choices[0].message.content")
+            ?: error("\u041e\u0442\u0432\u0435\u0442 API \u043d\u0435 \u0441\u043e\u0434\u0435\u0440\u0436\u0438\u0442 choices[0].message.content")
 
         conversation += ChatMessage(role = ASSISTANT_ROLE, content = content)
         writeOutputFile(conversation)
-        println("Ассистент: $content")
+        println("\u0410\u0441\u0441\u0438\u0441\u0442\u0435\u043d\u0442: $content")
     }
 }
+
+private fun detectConsoleCharset(): Charset {
+    val nativeEncoding = System.getProperty("native.encoding")
+    return if (nativeEncoding.isNullOrBlank()) {
+        Charset.defaultCharset()
+    } else {
+        Charset.forName(nativeEncoding)
+    }
+}
+
+private fun readConsoleLine(): String? = systemConsole?.readLine() ?: consoleReader.readLine()
 
 private fun loadConfig(): Properties {
     val configPath = Path.of(CONFIG_FILE)
     require(Files.exists(configPath)) {
-        "Файл конфигурации $CONFIG_FILE не найден. Создайте его на основе config/app.properties.example."
+        "\u0424\u0430\u0439\u043b \u043a\u043e\u043d\u0444\u0438\u0433\u0443\u0440\u0430\u0446\u0438\u0438 $CONFIG_FILE \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d. \u0421\u043e\u0437\u0434\u0430\u0439\u0442\u0435 \u0435\u0433\u043e \u043d\u0430 \u043e\u0441\u043d\u043e\u0432\u0435 config/app.properties.example."
     }
 
     return Properties().apply {
@@ -102,7 +121,7 @@ private fun loadConfig(): Properties {
 
 private fun Properties.getRequired(key: String): String =
     getProperty(key)?.takeIf { it.isNotBlank() }
-        ?: throw IllegalArgumentException("В $CONFIG_FILE отсутствует обязательное свойство '$key'.")
+        ?: throw IllegalArgumentException("\u0412 $CONFIG_FILE \u043e\u0442\u0441\u0443\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u043e\u0431\u044f\u0437\u0430\u0442\u0435\u043b\u044c\u043d\u043e\u0435 \u0441\u0432\u043e\u0439\u0441\u0442\u0432\u043e '$key'.")
 
 private fun writeOutputFile(conversation: List<ChatMessage>) {
     val transcript = conversation.joinToString(
@@ -122,8 +141,8 @@ private fun writeOutputFile(conversation: List<ChatMessage>) {
 }
 
 private fun String.toRussianRole(): String = when (this) {
-    USER_ROLE -> "Пользователь"
-    ASSISTANT_ROLE -> "Ассистент"
+    USER_ROLE -> "\u041f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044c"
+    ASSISTANT_ROLE -> "\u0410\u0441\u0441\u0438\u0441\u0442\u0435\u043d\u0442"
     else -> replaceFirstChar(Char::uppercase)
 }
 
@@ -138,7 +157,7 @@ private class LoadingIndicator {
             while (running.get()) {
                 val dots = ".".repeat(step % 4)
                 val padding = " ".repeat(3 - dots.length)
-                print("\rАссистент думает$dots$padding")
+                print("\r\u0410\u0441\u0441\u0438\u0441\u0442\u0435\u043d\u0442 \u0434\u0443\u043c\u0430\u0435\u0442$dots$padding")
                 Thread.sleep(350)
                 step++
             }
